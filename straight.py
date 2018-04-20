@@ -6,7 +6,7 @@ LEFT = 0
 RIGHT = 1
 
 SPEED = int(sys.argv[1])
-INC = 7#15
+INC = (SPEED / 100) * 10 #7#15
 
 SAFE_DISTANCE = 45
 USS = 15
@@ -51,10 +51,11 @@ def enc_read(motor):
     else:
         return -1
 
-US_DIST = [117]
+US_CMD = [117]
 
 def us_dist(pin):
-    write_12c_block(ADDRESS, US_CMD+[pin,0,0])
+    write_i2c_block(ADDRESS, US_CMD+[pin,0,0])
+    time.sleep(0.01)
     #time.sleep(0.08)
     try:
         b1 = bus.read_byte(ADDRESS)
@@ -80,13 +81,14 @@ try:
         gopigo.set_speed(SPEED)
         gopigo.fwd()
         while True:
+            #time.sleep(0.12)
             t = time.time()
-            dist = gopigo.us_dist(USS)
+            dist = us_dist(USS)
             print("Dist: " + str(dist))
             if dist < SAFE_DISTANCE:
                 gopigo.stop()
                 while dist < SAFE_DISTANCE:
-                    dist = gopigo.us_dist(USS)
+                    dist = us_dist(USS)
 		    time.sleep(0.01)
                 gopigo.fwd()
             #time.sleep(0.1)

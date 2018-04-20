@@ -6,9 +6,9 @@ LEFT = 0
 RIGHT = 1
 
 SPEED = int(sys.argv[1])
-INC = 15
+INC = 7#15
 
-SAFE_DISTANCE = 35
+SAFE_DISTANCE = 45
 USS = 15
 
 TRIM = int(sys.argv[2])
@@ -21,10 +21,56 @@ gopigo.enable_encoders()
 
 gopigo.trim_write(TRIM)
 
+ADDRESS = 0x08
+ENC_READ_CMD = [53]
+
+import smbus
+bus = smbus.SMBus(1)
+
+def write_i2c_block(address, block):
+    try:
+        op = bus.write_i2c_block_data(address, 1, block)
+        time.sleep(0.005)
+        return op
+    except IOError:
+        return -1
+    return 1
+
+def enc_read(motor):
+    write_i2c_block(ADDRESS, ENC_READ_CMD+[motor,0,0])
+    #time.sleep(0.01)
+    #time.sleep(0.08)
+    try:
+        b1 = bus.read_byte(ADDRESS)
+        b2 = bus.read_byte(ADDRESS)
+    except IOError:
+        return -1
+    if b1 != -1 and b2 != -1:
+        v = b1 * 256 + b2
+        return v
+    else:
+        return -1
+
+US_DIST = [117]
+
+def us_dist(pin):
+    write_12c_block(ADDRESS, US_CMD+[pin,0,0])
+    #time.sleep(0.08)
+    try:
+        b1 = bus.read_byte(ADDRESS)
+        b2 = bus.read_byte(ADDRESS)
+    except IOError:
+        return -1
+    if b1 != -1 and b2 != -1:
+        v = b1 * 256 + b2
+        return v
+    else:
+        return -1
+
 time.sleep(0.1)
-initial_ticks_left = gopigo.enc_read(LEFT)
+initial_ticks_left = enc_read(LEFT)
 time.sleep(0.1)
-initial_ticks_right = gopigo.enc_read(RIGHT)
+initial_ticks_right = enc_read(RIGHT)
 
 elapsed_ticks_left = 0
 elapsed_ticks_right = 0
@@ -34,15 +80,19 @@ try:
         gopigo.set_speed(SPEED)
         gopigo.fwd()
         while True:
+            t = time.time()
             dist = gopigo.us_dist(USS)
             print("Dist: " + str(dist))
             if dist < SAFE_DISTANCE:
-		break
-
+                gopigo.stop()
+                while dist < SAFE_DISTANCE:
+                    dist = gopigo.us_dist(USS)
+		    time.sleep(0.01)
+                gopigo.fwd()
             #time.sleep(0.1)
-            elapsed_ticks_left = gopigo.enc_read(LEFT) - initial_ticks_left
+            elapsed_ticks_left = enc_read(LEFT) - initial_ticks_left
             #time.sleep(0.1)
-            elapsed_ticks_right = gopigo.enc_read(RIGHT) - initial_ticks_right
+            elapsed_ticks_right = enc_read(RIGHT) - initial_ticks_right
 
             print("L: " + str(elapsed_ticks_left) + "\tR: " + str(elapsed_ticks_right))
 
@@ -51,11 +101,17 @@ try:
                 if CORRECTION:
                     gopigo.set_left_speed(SPEED - INC)
                     gopigo.set_right_speed(SPEED + INC)
-            if elapsed_ticks_left < elapsed_ticks_right:
+            elif elapsed_ticks_left < elapsed_ticks_right:
                 print("LEFT SLOW")
                 if CORRECTION:
-                    gopigo.set_left_speed(SPEED + INC)
                     gopigo.set_right_speed(SPEED - INC)
+            else:
+                print("Equal")
+                if CORRECTION:
+                    gopigo.set_left_speed(SPEED)
+                    gopigo.set_right_speed(SPEED)
+
+            print(time.time() - t)
     except Exception, e:
         print(e)
 except KeyboardInterrupt:

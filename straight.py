@@ -106,6 +106,7 @@ try:
             elif elapsed_ticks_left < elapsed_ticks_right:
                 print("LEFT SLOW")
                 if CORRECTION:
+                    gopigo.set_left_speed(SPEED + INC)
                     gopigo.set_right_speed(SPEED - INC)
             else:
                 print("Equal")

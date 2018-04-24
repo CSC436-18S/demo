@@ -19,18 +19,24 @@ SAFE_DISTANCE = 2 * CRITICAL_DISTANCE
 ALERT_DISTANCE = 3 * SAFE_DISTANCE
 SLOWDOWN_SPAN = (4.0/ 5.0) * (SAFE_DISTANCE - CRITICAL_DISTANCE)
 
-SLOWING_DECCELLERATION = 50#100 # power units/ second
-SPEED_ACCELERATION = 40#100
+SLOWING_DECCELLERATION = 50#100 # power units / second
+SPEED_ACCELERATION = 40#100 # power units / second
 
 STOP_THRESHOLD = 0.01
 
-SAMPLE_SIZE = 10#20
+SAMPLE_SIZE = 10#20     # number of uss readings to sample for relative velocity
 ALERT_THRESHOLD = 0.01
 
 USS_ERROR = "USS_ERROR"
 NOTHING_FOUND = "NOTHING_FOUND"
 
 ###############################################
+# These functions have been modified from the gopigo library (GPLv3) in order
+# to remove some of the extra time.sleep times, so that the main loop can run
+# at a faster rate.
+#
+# For the ACC, the running rate of the main loop can greatly impact the
+# performance as slower rates lead to slower response times.
 
 ADDRESS = 0x08
 ENC_READ_CMD = [53]
@@ -86,13 +92,33 @@ def us_dist(pin):
 ###############################################
 
 def get_inc(speed):
-    #return 10
+    """
+    Returns the power amount to use in straightness correcting.
+
+    It is based on the current speed, so that at higher speeds it corrects with
+    less, and at lower speeds it corrects with more.
+
+    :param float speed: The current speed that the rover is going (power units)
+    :return: The correction power change (power units)
+    :rtype: float
+    """
     if speed < 0.1 and speed > -0.1:
         return 0
     else:
         return (9.0 / (speed / INC_CONST)) / 1.5
 
 def get_deccelleration(speed):
+    """
+    Returns the deccelleration amount to use when slowing down when within the
+    safe distance.
+
+    It is based on the current speed so that at higher speeds it decelerates
+    more, and at lower speeds it deccellerates less.
+
+    :param float speed: The current speed that the rover is going (power units)
+    :return: The deccelleration to apply to the rover's speed (power units / seconds)
+    :rtype: float
+    """
     return (speed ** 2.0) / (2.0 * SLOWDOWN_SPAN)
 
 #def main(command_queue):
@@ -147,9 +173,7 @@ def main():
 
             print("Time: " + str(dt))
 
-            #time.sleep(0.005)
             dist = get_dist()
-            #time.sleep(0.005)
             print("Dist: " + str(dist))
 
             if not isinstance(dist, str):
@@ -177,36 +201,20 @@ def main():
                 print("Slowing down")
                 speed = speed - dt * SLOWING_DECCELLERATION
             elif dist < ALERT_DISTANCE and rel_speed is not None:
-                if rel_speed > ALERT_THRESHOLD:
-                    print("Alert speeding")
-                    speed = speed + dt * SPEED_ACCELERATION
-                elif rel_speed < -ALERT_THRESHOLD:
-                    print("Alert slowing")
-                    speed = speed - dt * SLOWING_DECCELLERATION
-                    if speed < MIN_SPEED:
-                        speed = MIN_SPEED
-                else:
-                    print("Alert stable")
+                speed = handle_alert_distance(speed, rel_speed, dt)
             elif speed < MAX_SPEED:
                 print("Speeding up")
                 speed = speed + dt * SPEED_ACCELERATION
                 #speed = speed - dt * get_deccelleration(speed)
-
 
             elapsed_ticks_left, elapsed_ticks_right = \
                 read_enc_ticks(initial_ticks_left, initial_ticks_right)
 
             print("L: " + str(elapsed_ticks_left) + "\tR: " + str(elapsed_ticks_right))
 
-            if elapsed_ticks_left > elapsed_ticks_right:
-                print("Right slow")
-                set_speed_lr(speed, -get_inc(speed), get_inc(speed))
-            elif elapsed_ticks_left < elapsed_ticks_right:
-                print("Left slow")
-                set_speed_lr(speed, get_inc(speed), -get_inc(speed))
-            else:
-                print("Equal")
-                set_speed_lr(speed, 0, 0)
+            l_diff, r_diff = straightness_correction(speed, elapsed_ticks_left, elapsed_ticks_right)
+
+            set_speed_lr(speed, l_diff, r_diff)
 
             print("Speed: " + str(speed))
 
@@ -214,6 +222,58 @@ def main():
         traceback.print_exc()
         gopigo.stop()
     gopigo.stop()
+
+def handle_alert_distance(speed, rel_speed, dt):
+    """
+    Determines the new speed of the rover when it is in the alert distance
+    in order to attempt to match the speed of the obstacle.
+
+    Keeps going at a minimum speed even if the obstacle is not moving so that
+    it will stop around the safe distance.
+
+    :param float speed: The current speed of the rover (power units)
+    :param float rel_speed: The speed of the obstacle relative to the rover (cm / s)
+    :param float dt: The change in time for the previous run of the main loop (s)
+    :return: The new speed of the rover (power units)
+    :rtype: float
+    """
+    if rel_speed > ALERT_THRESHOLD:
+        print("Alert speeding")
+        new_speed = speed + dt * SPEED_ACCELERATION
+
+        return new_speed
+    elif rel_speed < -ALERT_THRESHOLD:
+        print("Alert slowing")
+        new_speed = speed - dt * SLOWING_DECCELLERATION
+
+        if new_speed < MIN_SPEED:
+            new_speed = MIN_SPEED
+
+        return new_speed
+    else:
+        print("Alert stable")
+        return speed
+
+def straightness_correction(speed, elapsed_ticks_left, elapsed_ticks_right):
+    """
+    Returns the power adjustments to make to each motor to correct the
+    straightness of the path of the rover.
+
+    :param float speed: The speed that the rover is going at (power units)
+    :param int elapsed_ticks_left: The number of left ticks (ticks)
+    :param int elapsed_ticks_right: The number of right ticks (ticks)
+    :return: The left and right motor speed adjustments (power units)
+    :rtype: tuple[float, float]
+    """
+    if elapsed_ticks_left > elapsed_ticks_right:
+        print("Right slow")
+        return (-get_inc(speed), get_inc(speed))
+    elif elapsed_ticks_left < elapsed_ticks_right:
+        print("Left slow")
+        return (get_inc(speed), -get_inc(speed))
+    else:
+        print("Equal")
+        return (0, 0)
 
 def read_enc_ticks(initial_ticks_left, initial_ticks_right):
     time.sleep(0.001)
@@ -226,7 +286,6 @@ def read_enc_ticks(initial_ticks_left, initial_ticks_right):
     return (elapsed_ticks_left, elapsed_ticks_right)
 
 def set_speed_lr(speed, l_diff, r_diff):
-    print(l_diff)
     if speed >= MIN_SPEED:
         gopigo.set_left_speed(int(speed + l_diff))
         gopigo.set_right_speed(int(speed + r_diff))

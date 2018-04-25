@@ -12,11 +12,11 @@ INITIAL_SPEED = 50
 MAX_SPEED = 200
 MIN_SPEED = 30
 
-INC_CONST = 100.0
+INC_CONST = 100.0 #100.0
 
 CRITICAL_DISTANCE = 10
 SAFE_DISTANCE = 2 * CRITICAL_DISTANCE
-ALERT_DISTANCE = 3 * SAFE_DISTANCE
+ALERT_DISTANCE = 5 * SAFE_DISTANCE
 SLOWDOWN_SPAN = (4.0/ 5.0) * (SAFE_DISTANCE - CRITICAL_DISTANCE)
 
 SLOWING_DECCELLERATION = 50#100 # power units / second
@@ -25,7 +25,7 @@ SPEED_ACCELERATION = 40#100 # power units / second
 STOP_THRESHOLD = 0.01
 
 SAMPLE_SIZE = 10#20     # number of uss readings to sample for relative velocity
-ALERT_THRESHOLD = 0.01
+ALERT_THRESHOLD = 5.0 # 0.01
 
 USS_ERROR = "USS_ERROR"
 NOTHING_FOUND = "NOTHING_FOUND"
@@ -158,13 +158,13 @@ def main():
 
             print("========================")
             #if not command_queue.empty():
-            #   comm = command_queue.get()
-            #   global MAX_SPEED
-            #   global SAFE_DISTANCE
-            #   MAX_SPEED = comm[0]
-            #   SAFE_DISTANCE = comm[1]
+            #    comm = command_queue.get()
+            #    global MAX_SPEED
+            #    global SAFE_DISTANCE
+            #    MAX_SPEED = comm[0]
+            #    SAFE_DISTANCE = comm[1]
 
-            #   print(comm)
+            #    print(comm)
 
             dt = time.time() - t
             t = time.time()
@@ -214,7 +214,10 @@ def main():
 
             l_diff, r_diff = straightness_correction(speed, elapsed_ticks_left, elapsed_ticks_right)
 
-            set_speed_lr(speed, l_diff, r_diff)
+            if elapsed_ticks_left >= 0 and elapsed_ticks_right >= 0:
+                set_speed_lr(speed, l_diff, r_diff)
+            else:
+                set_speed_lr(speed, 0, 0)
 
             print("Speed: " + str(speed))
 
@@ -276,10 +279,10 @@ def straightness_correction(speed, elapsed_ticks_left, elapsed_ticks_right):
         return (0, 0)
 
 def read_enc_ticks(initial_ticks_left, initial_ticks_right):
-    time.sleep(0.001)
+    time.sleep(0.01)
     elapsed_ticks_left = enc_read(LEFT) - initial_ticks_left
     #time.sleep(0.005)
-    time.sleep(0.001)
+    time.sleep(0.01)
     elapsed_ticks_right = enc_read(RIGHT) - initial_ticks_right
     #time.sleep(0.005)
 
